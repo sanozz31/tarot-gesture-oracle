@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#121212" />
+    <title>Gesture Tarot Oracle</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="oracle-stage" aria-label="手势抽牌区域">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Gesture Tarot Oracle</p>
+            <h1>用一个手势抽出此刻的牌</h1>
+          </div>
+          <button class="icon-button" id="themeToggle" type="button" aria-label="切换明暗主题" title="切换主题">
+            <span aria-hidden="true">◐</span>
+          </button>
+        </header>
+
+        <div class="question-panel">
+          <label for="questionInput">你想问什么</label>
+          <textarea id="questionInput" rows="3" maxlength="120" placeholder="例如：接下来三个月，我该如何看待这段关系？"></textarea>
+          <div class="controls-row">
+            <div class="segmented" role="radiogroup" aria-label="牌阵">
+              <button class="segment active" type="button" data-spread="single" aria-pressed="true">单张</button>
+              <button class="segment" type="button" data-spread="three" aria-pressed="false">三张</button>
+            </div>
+            <button class="primary-button" id="drawButton" type="button">立即抽牌</button>
+          </div>
+        </div>
+
+        <div class="gesture-grid">
+          <section class="camera-card" aria-label="摄像头手势识别">
+            <div class="camera-frame" id="cameraFrame">
+              <video id="cameraVideo" autoplay playsinline muted></video>
+              <canvas id="motionCanvas"></canvas>
+              <div class="camera-overlay">
+                <div class="portal-ring"></div>
+                <p id="gestureStatus">点击开启摄像头，或直接按下抽牌</p>
+              </div>
+            </div>
+            <div class="camera-actions">
+              <button class="ghost-button" id="cameraButton" type="button">开启手势</button>
+              <div class="meter" aria-hidden="true"><span id="motionMeter"></span></div>
+            </div>
+          </section>
+
+          <section class="deck-zone" aria-label="塔罗牌堆">
+            <div class="deck" id="deck" role="button" tabindex="0" aria-label="从牌堆抽牌">
+              <div class="deck-card card-a"></div>
+              <div class="deck-card card-b"></div>
+              <div class="deck-card card-c"></div>
+            </div>
+            <p class="deck-hint">手掌掠过圆环，或轻点牌堆</p>
+          </section>
+        </div>
+      </section>
+
+      <aside class="reading-panel" aria-label="解读结果">
+        <div class="reading-header">
+          <div>
+            <p class="eyebrow">Reading</p>
+            <h2 id="readingTitle">等待一次抽牌</h2>
+          </div>
+          <button class="icon-button" id="copyButton" type="button" aria-label="复制解读" title="复制解读">
+            <span aria-hidden="true">⧉</span>
+          </button>
+        </div>
+
+        <div class="cards-result" id="cardsResult">
+          <div class="empty-state">
+            <div class="mini-card"></div>
+            <p>把问题放进文本框，再用手势唤醒牌面。</p>
+          </div>
+        </div>
+
+        <div class="interpretation" id="interpretation">
+          <p>单张牌适合快速确认方向；三张牌会从「过去、现在、建议」三个角度展开。</p>
+        </div>
+
+        <section class="history-panel">
+          <div class="history-title">
+            <h3>最近记录</h3>
+            <button class="text-button" id="clearHistory" type="button">清空</button>
+          </div>
+          <div class="history-list" id="historyList"></div>
+        </section>
+      </aside>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
