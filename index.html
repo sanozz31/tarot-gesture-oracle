@@ -13,7 +13,7 @@
         <header class="topbar">
           <div>
             <p class="eyebrow">Gesture Tarot Oracle</p>
-            <h1>用一个手势抽出此刻的牌</h1>
+            <h1>让手势把牌从牌堆里带出来</h1>
           </div>
           <button class="icon-button" id="themeToggle" type="button" aria-label="切换明暗主题" title="切换主题">
             <span aria-hidden="true">◐</span>
@@ -36,10 +36,10 @@
           <section class="camera-card" aria-label="摄像头手势识别">
             <div class="camera-frame" id="cameraFrame">
               <video id="cameraVideo" autoplay playsinline muted></video>
-              <canvas id="motionCanvas"></canvas>
+              <canvas id="handCanvas"></canvas>
               <div class="camera-overlay">
                 <div class="portal-ring"></div>
-                <p id="gestureStatus">点击开启摄像头，或直接按下抽牌</p>
+                <p id="gestureStatus">开启手势后，先伸出五指</p>
               </div>
             </div>
             <div class="camera-actions">
@@ -48,13 +48,17 @@
             </div>
           </section>
 
-          <section class="deck-zone" aria-label="塔罗牌堆">
-            <div class="deck" id="deck" role="button" tabindex="0" aria-label="从牌堆抽牌">
+          <section class="deck-zone" id="deckZone" aria-label="塔罗牌堆俯视区">
+            <div class="ritual-label" id="ritualLabel">牌堆视角</div>
+            <div class="deck" id="deck" role="button" tabindex="0" aria-label="手势牌堆">
               <div class="deck-card card-a"></div>
               <div class="deck-card card-b"></div>
               <div class="deck-card card-c"></div>
             </div>
-            <p class="deck-hint">手掌掠过圆环，或轻点牌堆</p>
+            <div class="tableau" id="tableau" aria-label="摊开的塔罗牌">
+              <div class="selection-frame" id="selectionFrame"></div>
+            </div>
+            <p class="deck-hint" id="deckHint">五指张开切换俯视，右滑摊牌，手掌左右挥动框选</p>
           </section>
         </div>
       </section>
@@ -90,7 +94,8 @@
         </section>
       </aside>
     </main>
-
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

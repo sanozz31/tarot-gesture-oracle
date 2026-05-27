@@ -184,11 +184,17 @@ const roles = {
 
 const state = {
   spread: "single",
-  stream: null,
+  ritualStage: "idle",
+  hands: null,
+  cameraController: null,
   cameraReady: false,
-  lastFrame: null,
-  lastDrawAt: 0,
-  recentEnergy: 0,
+  tableauCards: [],
+  selectedIndex: 0,
+  pendingCards: [],
+  pendingReading: null,
+  pointerTrail: [],
+  fistSeenAt: 0,
+  lastStageAt: 0,
   history: JSON.parse(localStorage.getItem("tarotHistory") || "[]")
 };
 
@@ -197,11 +203,16 @@ const els = {
   draw: document.querySelector("#drawButton"),
   camera: document.querySelector("#cameraButton"),
   video: document.querySelector("#cameraVideo"),
-  canvas: document.querySelector("#motionCanvas"),
+  canvas: document.querySelector("#handCanvas"),
   meter: document.querySelector("#motionMeter"),
   status: document.querySelector("#gestureStatus"),
   portal: document.querySelector(".portal-ring"),
   deck: document.querySelector("#deck"),
+  deckZone: document.querySelector("#deckZone"),
+  tableau: document.querySelector("#tableau"),
+  selection: document.querySelector("#selectionFrame"),
+  ritualLabel: document.querySelector("#ritualLabel"),
+  deckHint: document.querySelector("#deckHint"),
   cards: document.querySelector("#cardsResult"),
   interpretation: document.querySelector("#interpretation"),
   title: document.querySelector("#readingTitle"),
@@ -216,19 +227,25 @@ document.querySelectorAll(".segment").forEach((button) => {
 });
 
 els.draw.addEventListener("click", () => performReading("button"));
-els.deck.addEventListener("click", () => performReading("deck"));
+els.deck.addEventListener("click", advanceFallbackRitual);
 els.deck.addEventListener("keydown", (event) => {
   if (event.key === "Enter" || event.key === " ") {
     event.preventDefault();
-    performReading("deck");
+    advanceFallbackRitual();
   }
 });
 els.camera.addEventListener("click", toggleCamera);
 els.copy.addEventListener("click", copyReading);
 els.clearHistory.addEventListener("click", clearHistory);
 els.theme.addEventListener("click", toggleTheme);
+els.tableau.addEventListener("pointermove", handlePointerSelect);
+els.tableau.addEventListener("click", () => {
+  if (state.ritualStage === "spread") extractSelection("pointer");
+  else if (state.ritualStage === "drawn") revealPendingReading("pointer");
+});
 
 renderHistory();
+resetRitual();
 
 function setSpread(spread) {
   state.spread = spread;
@@ -240,84 +257,208 @@ function setSpread(spread) {
 }
 
 async function toggleCamera() {
-  if (state.stream) {
+  if (state.cameraController) {
     stopCamera();
     return;
   }
 
+  if (!window.Hands || !window.Camera) {
+    els.status.textContent = "手势识别库还没加载完成，请稍后再试";
+    return;
+  }
+
   try {
-    state.stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user", width: { ideal: 960 }, height: { ideal: 720 } },
-      audio: false
+    state.hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
     });
-    els.video.srcObject = state.stream;
+    state.hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.68,
+      minTrackingConfidence: 0.62
+    });
+    state.hands.onResults(handleHandResults);
+
+    state.cameraController = new Camera(els.video, {
+      onFrame: async () => {
+        await state.hands.send({ image: els.video });
+      },
+      width: 960,
+      height: 720
+    });
+
+    await state.cameraController.start();
     state.cameraReady = true;
     els.camera.textContent = "关闭手势";
-    els.status.textContent = "手掌从圆环中扫过即可抽牌";
-    requestAnimationFrame(scanMotion);
+    els.status.textContent = "伸出五指，牌堆会切换到俯视视角";
   } catch (error) {
-    els.status.textContent = "摄像头不可用，请使用按钮或轻点牌堆抽牌";
+    els.status.textContent = "摄像头或识别库不可用，请用牌堆点击兜底操作";
     state.cameraReady = false;
   }
 }
 
 function stopCamera() {
-  state.stream.getTracks().forEach((track) => track.stop());
-  state.stream = null;
+  if (state.cameraController) state.cameraController.stop();
+  if (els.video.srcObject) {
+    els.video.srcObject.getTracks().forEach((track) => track.stop());
+  }
+  state.cameraController = null;
+  state.hands = null;
   state.cameraReady = false;
-  state.lastFrame = null;
   els.camera.textContent = "开启手势";
-  els.status.textContent = "点击开启摄像头，或直接按下抽牌";
+  els.status.textContent = "开启手势后，先伸出五指";
   els.meter.style.width = "0%";
+  clearHandCanvas();
 }
 
-function scanMotion() {
-  if (!state.cameraReady || !state.stream) return;
-
-  const canvas = els.canvas;
-  const video = els.video;
-  const context = canvas.getContext("2d", { willReadFrequently: true });
-  const width = 160;
-  const height = 120;
-
-  if (canvas.width !== width || canvas.height !== height) {
-    canvas.width = width;
-    canvas.height = height;
+function handleHandResults(results) {
+  drawHandOverlay(results);
+  const hand = results.multiHandLandmarks?.[0];
+  if (!hand) {
+    els.meter.style.width = "0%";
+    return;
   }
 
-  context.drawImage(video, 0, 0, width, height);
-  const frame = context.getImageData(0, 0, width, height);
-  let energy = 0;
-  let samples = 0;
+  const gesture = inferGesture(hand);
+  els.meter.style.width = `${Math.min(100, gesture.extendedCount * 20)}%`;
+  processGesture(gesture);
+}
 
-  if (state.lastFrame) {
-    for (let y = 20; y < height - 20; y += 2) {
-      for (let x = 28; x < width - 28; x += 2) {
-        const index = (y * width + x) * 4;
-        const current = frame.data[index] * 0.3 + frame.data[index + 1] * 0.59 + frame.data[index + 2] * 0.11;
-        const previous =
-          state.lastFrame.data[index] * 0.3 + state.lastFrame.data[index + 1] * 0.59 + state.lastFrame.data[index + 2] * 0.11;
-        const diff = Math.abs(current - previous);
-        if (diff > 18) energy += diff;
-        samples++;
-      }
-    }
-  }
-
-  state.lastFrame = frame;
-  state.recentEnergy = Math.min(100, Math.round((energy / Math.max(samples, 1)) * 5.6));
-  els.meter.style.width = `${state.recentEnergy}%`;
-
+function inferGesture(points) {
   const now = Date.now();
-  if (state.recentEnergy > 64 && now - state.lastDrawAt > 2600) {
-    state.lastDrawAt = now;
-    els.portal.classList.remove("active");
-    void els.portal.offsetWidth;
-    els.portal.classList.add("active");
-    performReading("gesture");
+  const palm = mirrorPoint(points[0]);
+  const fingers = [
+    points[8].y < points[6].y - 0.025,
+    points[12].y < points[10].y - 0.025,
+    points[16].y < points[14].y - 0.025,
+    points[20].y < points[18].y - 0.025
+  ];
+  const thumbOpen = Math.abs(points[4].x - points[2].x) > 0.07;
+  const extendedCount = fingers.filter(Boolean).length + (thumbOpen ? 1 : 0);
+
+  state.pointerTrail.push({ time: now, x: palm.x, y: palm.y });
+  state.pointerTrail = state.pointerTrail.filter((item) => now - item.time < 820);
+  const first = state.pointerTrail[0] || { x: palm.x, y: palm.y };
+
+  return {
+    palm,
+    extendedCount,
+    isOpen: extendedCount >= 4,
+    isFist: extendedCount <= 1,
+    swipeRight: palm.x - first.x > 0.18 && Math.abs(palm.y - first.y) < 0.18,
+    waveDown: palm.y - first.y > 0.2
+  };
+}
+
+function mirrorPoint(point) {
+  return {
+    x: 1 - point.x,
+    y: point.y
+  };
+}
+
+function processGesture(gesture) {
+  const now = Date.now();
+  if (now - state.lastStageAt < 420) return;
+
+  if (state.ritualStage === "idle" && gesture.isOpen) {
+    enterTopView("五指张开：牌堆切换为俯视视角");
+    return;
   }
 
-  requestAnimationFrame(scanMotion);
+  if (state.ritualStage === "top" && gesture.swipeRight) {
+    spreadTableau("右滑完成：牌面已经摊开");
+    return;
+  }
+
+  if (state.ritualStage === "spread") {
+    updateSelectionFromPoint(gesture.palm);
+    if (gesture.waveDown) extractSelection("gesture");
+    return;
+  }
+
+  if (state.ritualStage === "drawn" && gesture.isFist) {
+    state.fistSeenAt = now;
+    els.status.textContent = "已握拳，重新伸开手掌即可解读";
+    els.portal.classList.add("active");
+    return;
+  }
+
+  if (state.ritualStage === "drawn" && gesture.isOpen && now - state.fistSeenAt < 2200) {
+    revealPendingReading("gesture");
+  }
+}
+
+function resetRitual() {
+  state.ritualStage = "idle";
+  state.selectedIndex = 0;
+  state.pendingCards = [];
+  state.pendingReading = null;
+  state.tableauCards = createTableau();
+  state.lastStageAt = Date.now();
+  els.deckZone.className = "deck-zone idle";
+  els.ritualLabel.textContent = "牌堆视角";
+  els.deckHint.textContent = "五指张开切换俯视，右滑摊牌，手掌左右挥动框选";
+  renderTableau();
+  hideSelection();
+}
+
+function enterTopView(message) {
+  state.ritualStage = "top";
+  state.lastStageAt = Date.now();
+  els.deckZone.className = "deck-zone top-view";
+  els.ritualLabel.textContent = "俯视牌堆";
+  els.deckHint.textContent = "手向右滑，牌会从牌堆里摊开";
+  els.status.textContent = message;
+  pulsePortal();
+}
+
+function spreadTableau(message) {
+  state.ritualStage = "spread";
+  state.lastStageAt = Date.now();
+  els.deckZone.className = "deck-zone spread";
+  els.ritualLabel.textContent = "选择一张牌";
+  els.deckHint.textContent = "手掌左右挥动，发光框会跟随；向下挥动抽出";
+  els.status.textContent = message;
+  renderTableau();
+  updateSelectionByIndex(state.selectedIndex);
+  pulsePortal();
+}
+
+function extractSelection(source) {
+  const cards = cardsFromSelection();
+  state.pendingCards = cards;
+  state.pendingReading = buildReading(cards, els.question.value.trim(), source);
+  state.ritualStage = "drawn";
+  state.lastStageAt = Date.now();
+  els.deckZone.className = "deck-zone drawn";
+  els.ritualLabel.textContent = "牌已抽出";
+  els.deckHint.textContent = "握拳，再伸开手掌，牌意才会显现";
+  els.status.textContent = "向下挥动完成抽牌：握拳再伸开进入解读";
+  renderCards(cards);
+  els.title.textContent = "牌已抽出，等待解读手势";
+  els.interpretation.innerHTML = `<p>保持这个问题，握拳后重新张开手掌，牌意会在下一步显示。</p>`;
+  pulsePortal();
+}
+
+function revealPendingReading(source) {
+  if (!state.pendingCards.length || !state.pendingReading) return;
+  renderInterpretation(state.pendingReading);
+  els.title.textContent = state.pendingCards.length > 1 ? "三张牌意已显现" : "牌意已显现";
+  els.status.textContent = source === "gesture" ? "握拳再张开：牌意解读完成" : "点击兜底：牌意解读完成";
+  saveHistory(state.pendingCards, state.pendingReading);
+  state.ritualStage = "revealed";
+  state.lastStageAt = Date.now();
+  els.deckHint.textContent = "再次伸出五指，开始下一轮";
+  pulsePortal();
+  window.setTimeout(resetRitual, 1200);
+}
+
+function advanceFallbackRitual() {
+  if (state.ritualStage === "idle") enterTopView("点击牌堆：切换为俯视视角");
+  else if (state.ritualStage === "top") spreadTableau("点击牌堆：牌面已经摊开");
+  else if (state.ritualStage === "spread") extractSelection("deck");
+  else if (state.ritualStage === "drawn") revealPendingReading("deck");
 }
 
 function performReading(source) {
@@ -329,12 +470,16 @@ function performReading(source) {
   renderCards(selected);
   renderInterpretation(reading);
   els.title.textContent = state.spread === "three" ? "三张牌阵已展开" : "此刻的牌已翻开";
+  saveHistory(selected, reading);
+  resetRitual();
+}
 
+function saveHistory(cards, reading) {
   state.history.unshift({
     id: crypto.randomUUID(),
     time: new Date().toLocaleString("zh-CN", { hour12: false }),
-    question,
-    cards: selected,
+    question: els.question.value.trim(),
+    cards,
     text: reading.map((item) => item.text).join("\n")
   });
   state.history = state.history.slice(0, 8);
@@ -353,6 +498,29 @@ function drawCards(count) {
       reversed: Math.random() > 0.72
     };
   });
+}
+
+function createTableau() {
+  const pool = [...deck];
+  return Array.from({ length: 7 }, (_, index) => {
+    const randomIndex = Math.floor(Math.random() * pool.length);
+    const card = pool.splice(randomIndex, 1)[0];
+    return {
+      ...card,
+      tableauIndex: index,
+      reversed: Math.random() > 0.72
+    };
+  });
+}
+
+function cardsFromSelection() {
+  const count = state.spread === "three" ? 3 : 1;
+  const center = state.selectedIndex;
+  const start = count === 1 ? center : Math.min(Math.max(center - 1, 0), state.tableauCards.length - count);
+  return Array.from({ length: count }, (_, offset) => start + offset).map((index, roleIndex) => ({
+    ...state.tableauCards[index],
+    role: roles[state.spread][roleIndex]
+  }));
 }
 
 function buildReading(cards, question, source) {
@@ -401,6 +569,82 @@ function renderCards(cards) {
     .join("");
 }
 
+function renderTableau() {
+  els.tableau.querySelectorAll(".gesture-card").forEach((node) => node.remove());
+  state.tableauCards.forEach((card, index) => {
+    const button = document.createElement("button");
+    button.className = "gesture-card";
+    button.type = "button";
+    button.dataset.index = String(index);
+    button.style.setProperty("--i", index);
+    button.innerHTML = `
+      <span class="gesture-card-mark">${card.symbol}</span>
+      <span class="gesture-card-back"></span>
+    `;
+    button.addEventListener("pointerenter", () => updateSelectionByIndex(index));
+    button.addEventListener("focus", () => updateSelectionByIndex(index));
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      updateSelectionByIndex(index);
+      if (state.ritualStage === "spread") extractSelection("deck");
+    });
+    els.tableau.appendChild(button);
+  });
+}
+
+function updateSelectionFromPoint(point) {
+  if (state.ritualStage !== "spread") return;
+  const rect = els.tableau.getBoundingClientRect();
+  const x = rect.left + point.x * rect.width;
+  const y = rect.top + point.y * rect.height;
+  let closest = 0;
+  let closestDistance = Infinity;
+  els.tableau.querySelectorAll(".gesture-card").forEach((card) => {
+    const cardRect = card.getBoundingClientRect();
+    const centerX = cardRect.left + cardRect.width / 2;
+    const centerY = cardRect.top + cardRect.height / 2;
+    const distance = Math.hypot(centerX - x, centerY - y);
+    if (distance < closestDistance) {
+      closest = Number(card.dataset.index);
+      closestDistance = distance;
+    }
+  });
+  updateSelectionByIndex(closest);
+  moveSelectionFrame(x, y);
+}
+
+function handlePointerSelect(event) {
+  if (state.ritualStage !== "spread") return;
+  const rect = els.tableau.getBoundingClientRect();
+  updateSelectionFromPoint({
+    x: (event.clientX - rect.left) / rect.width,
+    y: (event.clientY - rect.top) / rect.height
+  });
+}
+
+function updateSelectionByIndex(index) {
+  state.selectedIndex = Math.max(0, Math.min(state.tableauCards.length - 1, index));
+  els.tableau.querySelectorAll(".gesture-card").forEach((card) => {
+    card.classList.toggle("selected", Number(card.dataset.index) === state.selectedIndex);
+  });
+  const selected = els.tableau.querySelector(`[data-index="${state.selectedIndex}"]`);
+  if (!selected) return;
+  const rect = selected.getBoundingClientRect();
+  moveSelectionFrame(rect.left + rect.width / 2, rect.top + rect.height / 2, rect.width, rect.height);
+}
+
+function moveSelectionFrame(centerX, centerY, width = 90, height = 132) {
+  const rect = els.tableau.getBoundingClientRect();
+  els.selection.style.opacity = "1";
+  els.selection.style.width = `${width + 16}px`;
+  els.selection.style.height = `${height + 16}px`;
+  els.selection.style.transform = `translate(${centerX - rect.left - (width + 16) / 2}px, ${centerY - rect.top - (height + 16) / 2}px)`;
+}
+
+function hideSelection() {
+  els.selection.style.opacity = "0";
+}
+
 function renderInterpretation(reading) {
   els.interpretation.innerHTML = reading
     .map(
@@ -409,6 +653,57 @@ function renderInterpretation(reading) {
       `
     )
     .join("");
+}
+
+function drawHandOverlay(results) {
+  const canvas = els.canvas;
+  const context = canvas.getContext("2d");
+  const rect = canvas.getBoundingClientRect();
+  const width = Math.max(1, Math.floor(rect.width));
+  const height = Math.max(1, Math.floor(rect.height));
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  context.clearRect(0, 0, width, height);
+  const points = results.multiHandLandmarks?.[0];
+  if (!points) return;
+  context.fillStyle = "rgba(230, 185, 93, 0.88)";
+  context.strokeStyle = "rgba(116, 192, 167, 0.7)";
+  context.lineWidth = 2;
+  const connections = [
+    [0, 1], [1, 2], [2, 3], [3, 4],
+    [0, 5], [5, 6], [6, 7], [7, 8],
+    [5, 9], [9, 10], [10, 11], [11, 12],
+    [9, 13], [13, 14], [14, 15], [15, 16],
+    [13, 17], [17, 18], [18, 19], [19, 20],
+    [0, 17]
+  ];
+  connections.forEach(([from, to]) => {
+    const a = mirrorPoint(points[from]);
+    const b = mirrorPoint(points[to]);
+    context.beginPath();
+    context.moveTo(a.x * width, a.y * height);
+    context.lineTo(b.x * width, b.y * height);
+    context.stroke();
+  });
+  points.forEach((point) => {
+    const p = mirrorPoint(point);
+    context.beginPath();
+    context.arc(p.x * width, p.y * height, 4, 0, Math.PI * 2);
+    context.fill();
+  });
+}
+
+function clearHandCanvas() {
+  const context = els.canvas.getContext("2d");
+  context.clearRect(0, 0, els.canvas.width, els.canvas.height);
+}
+
+function pulsePortal() {
+  els.portal.classList.remove("active");
+  void els.portal.offsetWidth;
+  els.portal.classList.add("active");
 }
 
 function renderHistory() {
