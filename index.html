@@ -4,32 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#121212" />
-    <title>Gesture Tarot Oracle</title>
+    <title>TarotWave</title>
+    <link rel="icon" type="image/png" href="./assets/icon.png" />
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700;900&display=swap" rel="stylesheet" />
   </head>
   <body>
     <main class="app-shell">
       <section class="oracle-stage" aria-label="手势抽牌区域">
         <header class="topbar">
-          <div>
-            <p class="eyebrow">Gesture Tarot Oracle</p>
-            <h1>让手势把牌从牌堆里带出来</h1>
-          </div>
-          <button class="icon-button" id="themeToggle" type="button" aria-label="切换明暗主题" title="切换主题">
-            <span aria-hidden="true">◐</span>
-          </button>
+          <img class="brand-logo" src="./assets/logo.png" alt="TarotWave｜挥手塔罗" />
         </header>
 
-        <div class="question-panel">
-          <label for="questionInput">你想问什么</label>
-          <textarea id="questionInput" rows="3" maxlength="120" placeholder="例如：接下来三个月，我该如何看待这段关系？"></textarea>
-          <div class="controls-row">
-            <div class="segmented" role="radiogroup" aria-label="牌阵">
-              <button class="segment active" type="button" data-spread="single" aria-pressed="true">单张</button>
-              <button class="segment" type="button" data-spread="three" aria-pressed="false">三张</button>
-            </div>
-            <button class="primary-button" id="drawButton" type="button">立即抽牌</button>
+        <div class="action-panel">
+          <div class="segmented" role="radiogroup" aria-label="牌阵">
+            <button class="segment active" type="button" data-spread="single" aria-pressed="true">单张</button>
+            <button class="segment" type="button" data-spread="three" aria-pressed="false">三张</button>
           </div>
+          <button class="primary-button draw-button" id="drawButton" type="button" aria-label="立即抽牌"></button>
         </div>
 
         <div class="gesture-grid">
@@ -49,7 +43,6 @@
           </section>
 
           <section class="deck-zone" id="deckZone" aria-label="塔罗牌堆俯视区">
-            <div class="ritual-label" id="ritualLabel">牌堆视角</div>
             <div class="deck" id="deck" role="button" tabindex="0" aria-label="手势牌堆">
               <div class="deck-card card-a"></div>
               <div class="deck-card card-b"></div>
@@ -58,6 +51,7 @@
             <div class="tableau" id="tableau" aria-label="摊开的塔罗牌">
               <div class="selection-frame" id="selectionFrame"></div>
             </div>
+            <div class="drawn-cards-stage" id="drawnCardsStage" aria-label="抽出的塔罗牌"></div>
             <p class="deck-hint" id="deckHint">五指张开切换俯视，右滑摊牌，手掌左右挥动框选</p>
           </section>
         </div>
@@ -67,33 +61,16 @@
         <div class="reading-header">
           <div>
             <p class="eyebrow">Reading</p>
-            <h2 id="readingTitle">等待一次抽牌</h2>
+            <h2 id="readingTitle"></h2>
           </div>
           <button class="icon-button" id="copyButton" type="button" aria-label="复制解读" title="复制解读">
             <span aria-hidden="true">⧉</span>
           </button>
         </div>
-
-        <div class="cards-result" id="cardsResult">
-          <div class="empty-state">
-            <div class="mini-card"></div>
-            <p>把问题放进文本框，再用手势唤醒牌面。</p>
-          </div>
-        </div>
-
-        <div class="interpretation" id="interpretation">
-          <p>单张牌适合快速确认方向；三张牌会从「过去、现在、建议」三个角度展开。</p>
-        </div>
-
-        <section class="history-panel">
-          <div class="history-title">
-            <h3>最近记录</h3>
-            <button class="text-button" id="clearHistory" type="button">清空</button>
-          </div>
-          <div class="history-list" id="historyList"></div>
-        </section>
+        <div class="interpretation" id="interpretation"></div>
       </aside>
     </main>
+    <footer class="site-footer">由@sanozz31制作，功能仍在开发中，若有问题请联系sanozz@163.com</footer>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="./app.js"></script>
